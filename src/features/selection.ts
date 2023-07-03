@@ -1,6 +1,10 @@
 import { selectAll } from '@codemirror/commands';
 import { EditorView } from '@codemirror/view';
 import { GalapagosEditor } from '../editor';
+import { diffWords } from 'diff';
+import { Text } from '@codemirror/text';
+import { Decoration } from '@codemirror/view';
+import { Range, RangeSetBuilder } from '@codemirror/rangeset';
 
 /** SelectionFeatures: The selection and cursor features of the editor. */
 export class SelectionFeatures {
@@ -64,6 +68,36 @@ export class SelectionFeatures {
   /** HighlightChanges: Highlight the changes in the editor. */
   HighlightChanges(PreviousVersion: string) {
     var CurrentVersion = this.Galapagos.GetCode();
+    // create diff instance comparing previous and current
+    var diff = diffWords(PreviousVersion, CurrentVersion);
+
+    // // separate words into added, removed, and same arrays based on diff obj
+    let added = diff.filter((part) => part.added).map((part) => part.value);
+    let removed = diff.filter((part) => part.removed).map((part) => part.value);
+    let same = diff.filter((part) => !part.added && !part.removed).map((part) => part.value);
+
+    // console.log("Added: ", added);
+    // console.log("Removed: ", removed);
+    // console.log("Same: ", same);
+    console.log(diff);
+    //
+    let consolidatedString = diff.map((parth) => parth.value).join('');
+    const transaction = this.CodeMirror.state.update({
+      changes: {
+        from: 0,
+        to: this.CodeMirror.state.doc.length,
+        insert: consolidatedString,
+      },
+    });
+    this.CodeMirror.dispatch(transaction);
+    // styling for added and removed words
+    // Create a base theme with styles for added and removed words
+    const highlightChangesTheme = EditorView.baseTheme({
+      '.cm-added': { backgroundColor: 'rgba(0, 255, 0, 0.3)' },
+      '.cm-removed': { textDecoration: 'line-through' },
+    });
+
+    // find index of added
   }
   // #endregion
 }
