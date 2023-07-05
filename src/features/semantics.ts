@@ -59,6 +59,7 @@ export class SemanticFeatures {
     });
     return Container;
   }
+
   /** TraverseNodes: Parse a snippet of code and traverse its syntax nodes. */
   private TraverseNodes(
     Tree: Tree,
