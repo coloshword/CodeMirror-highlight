@@ -44587,26 +44587,6 @@ if (!String.prototype.matchAll) {
     }
   }
 
-  class textWidget extends WidgetType {
-    constructor(text, color = '', decoration = '') {
-      super();
-      this.widgetText = text;
-      this.textColor = color;
-      this.textDecoration = decoration;
-    }
-    toDOM() {
-      console.log('toDOM');
-      let wrap = document.createElement('span');
-      wrap.setAttribute('aria-hidden', 'true');
-      wrap.className = 'cm-text';
-      wrap.textContent = this.widgetText;
-      // optional parameters
-      if (this.textColor != '') wrap.style.color = this.textColor;
-      if (this.textDecoration != '') wrap.style.textDecoration = this.textDecoration;
-      return wrap;
-    }
-  }
-
   // Compressed representation of the Grapheme_Cluster_Break=Extend
   // information from
   // http://www.unicode.org/Public/13.0.0/ucd/auxiliary/GraphemeBreakProperty.txt.
@@ -45172,6 +45152,58 @@ if (!String.prototype.matchAll) {
     }
   }
 
+  class textWidget extends WidgetType {
+    constructor(text, color = '', decoration = '') {
+      super();
+      this.widgetText = text;
+      this.textColor = color;
+      this.textDecoration = decoration;
+    }
+    toDOM() {
+      console.log('toDOM');
+      let wrap = document.createElement('span');
+      wrap.setAttribute('aria-hidden', 'true');
+      wrap.className = 'cm-text';
+      wrap.textContent = this.widgetText;
+      // optional parameters
+      if (this.textColor != '') wrap.style.color = this.textColor;
+      if (this.textDecoration != '') wrap.style.textDecoration = this.textDecoration;
+      return wrap;
+    }
+  }
+  class CheckboxWidget extends WidgetType {
+    constructor(editor, finalText) {
+      super();
+      this.CodeMirror = editor;
+      this.CurrentVersion = finalText;
+    }
+    toDOM() {
+      console.log('In toDOM');
+      let wrap = document.createElement('span');
+      wrap.setAttribute('aria-hidden', 'true');
+      wrap.className = 'cm-boolean-toggle';
+      let box = wrap.appendChild(document.createElement('input'));
+      box.type = 'checkbox';
+      box.addEventListener('click', (e) => {
+        // length of current codemirror
+        let length = this.CodeMirror.state.doc.length;
+        // turn currentVersion into an array
+        let currentAsArr = this.CurrentVersion.split('\n');
+        let newTextObj = Text.of(currentAsArr);
+        // create transaction
+        let transaction = this.CodeMirror.state.update({ changes: { from: 0, to: length, insert: newTextObj } });
+        // dispatch transaction
+        this.CodeMirror.dispatch(transaction);
+        // destroy widget
+        //this.destroy();
+      });
+      return wrap;
+    }
+    ignoreEvent() {
+      return false;
+    }
+  }
+
   function Diff() {}
   Diff.prototype = {
     diff: function diff(oldString, newString) {
@@ -45724,6 +45756,7 @@ if (!String.prototype.matchAll) {
     /** HighlightChanges: Highlight the changes in the editor. */
     HighlightChanges(PreviousVersion) {
       let CurrentVersion = this.CodeMirror.state.doc.toString();
+      const editor = this.CodeMirror;
       // create diff instance comparing the two strings
       let diff = diffWords(PreviousVersion, CurrentVersion);
       console.log(diff);
@@ -45792,6 +45825,9 @@ if (!String.prototype.matchAll) {
       const addTextWidget = StateEffect.define({
         map: ({ from, to }, change) => ({ from: change.mapPos(from), to: change.mapPos(to) }),
       });
+      const addCheckbox = StateEffect.define({
+        map: ({ from, to }, change) => ({ from: change.mapPos(from), to: change.mapPos(to) }),
+      });
       // create the field
       const checkboxField = StateField.define({
         create: () => Decoration.none,
@@ -45807,19 +45843,36 @@ if (!String.prototype.matchAll) {
               underlines = underlines.update({
                 add: [decorationWidget.range(e.value.to)],
               });
+            } else if (e.is(addCheckbox)) {
+              let decorationWidget = Decoration.widget({
+                widget: new CheckboxWidget(editor, CurrentVersion),
+                side: 10,
+              });
+              underlines = underlines.update({
+                add: [decorationWidget.range(e.value.to)],
+              });
             }
           return underlines;
         },
         provide: (f) => EditorView.decorations.from(f),
       });
-      function makeWidget(view, end) {
+      function makeWidget(view, end, type = 'text') {
         let effects = [];
-        effects.push(
-          addTextWidget.of({
-            from: 0,
-            to: end,
-          })
-        );
+        if (type === 'text') {
+          effects.push(
+            addTextWidget.of({
+              from: 0,
+              to: end,
+            })
+          );
+        } else {
+          effects.push(
+            addCheckbox.of({
+              from: 0,
+              to: end,
+            })
+          );
+        }
         if (!effects.length) return false;
         effects.push(StateEffect.appendConfig.of([checkboxField]));
         view.dispatch({ effects });
@@ -45837,6 +45890,8 @@ if (!String.prototype.matchAll) {
           currentPos += part.value.length;
         }
       });
+      // add checkbox at the end of the editor
+      makeWidget(this.CodeMirror, currentPos, 'checkbox');
     }
   }
   // #endregion

@@ -1,8 +1,8 @@
 import { selectAll } from '@codemirror/commands';
-import { EditorView, Decoration, DecorationSet } from '@codemirror/view';
+import { EditorView, Decoration, DecorationSet, WidgetType } from '@codemirror/view';
 import { GalapagosEditor } from '../editor';
 import { StateEffect, StateField } from '@codemirror/state';
-import { textWidget } from './highlightWidgets';
+import { textWidget, CheckboxWidget } from './highlightWidgets';
 import { Text } from '@codemirror/text';
 import { diffWords } from 'diff';
 import { SearchCursor } from '@codemirror/search';
@@ -69,6 +69,7 @@ export class SelectionFeatures {
   /** HighlightChanges: Highlight the changes in the editor. */
   HighlightChanges(PreviousVersion: string) {
     let CurrentVersion: string = this.CodeMirror.state.doc.toString();
+    const editor = this.CodeMirror;
     // create diff instance comparing the two strings
     let diff = diffWords(PreviousVersion, CurrentVersion);
     console.log(diff);
@@ -144,6 +145,10 @@ export class SelectionFeatures {
       map: ({ from, to }, change) => ({ from: change.mapPos(from), to: change.mapPos(to) }),
     });
 
+    const addCheckbox = StateEffect.define<{ from: number; to: number }>({
+      map: ({ from, to }, change) => ({ from: change.mapPos(from), to: change.mapPos(to) }),
+    });
+
     // create the field
     const checkboxField = StateField.define<DecorationSet>({
       create: () => Decoration.none,
@@ -160,20 +165,37 @@ export class SelectionFeatures {
             underlines = underlines.update({
               add: [decorationWidget.range(e.value.to)],
             });
+          } else if (e.is(addCheckbox)) {
+            let decorationWidget = Decoration.widget({
+              widget: new CheckboxWidget(editor, CurrentVersion),
+              side: 10,
+            });
+            underlines = underlines.update({
+              add: [decorationWidget.range(e.value.to)],
+            });
           }
         return underlines;
       },
       provide: (f) => EditorView.decorations.from(f),
     });
 
-    function makeWidget(view: EditorView, end: number) {
+    function makeWidget(view: EditorView, end: number, type: string = 'text') {
       let effects: StateEffect<any>[] = [];
-      effects.push(
-        addTextWidget.of({
-          from: 0,
-          to: end,
-        })
-      );
+      if (type === 'text') {
+        effects.push(
+          addTextWidget.of({
+            from: 0,
+            to: end,
+          })
+        );
+      } else {
+        effects.push(
+          addCheckbox.of({
+            from: 0,
+            to: end,
+          })
+        );
+      }
       if (!effects.length) return false;
 
       effects.push(StateEffect.appendConfig.of([checkboxField]));
@@ -193,6 +215,8 @@ export class SelectionFeatures {
         currentPos += part.value.length;
       }
     });
+    // add checkbox at the end of the editor
+    makeWidget(this.CodeMirror, currentPos, 'checkbox');
   }
 }
 // #endregion
