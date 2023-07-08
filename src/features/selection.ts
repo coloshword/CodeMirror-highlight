@@ -1,13 +1,11 @@
 import { selectAll } from '@codemirror/commands';
-import { EditorView } from '@codemirror/view';
+import { EditorView, Decoration, DecorationSet } from '@codemirror/view';
 import { GalapagosEditor } from '../editor';
-import { diffWords } from 'diff';
-import { Text } from '@codemirror/text';
-import { Decoration } from '@codemirror/view';
 import { StateEffect, StateField } from '@codemirror/state';
-import { Range } from '@codemirror/rangeset';
+import { textWidget } from './highlightWidgets';
+import { Text } from '@codemirror/text';
+import { diffWords } from 'diff';
 import { SearchCursor } from '@codemirror/search';
-import { DecorationSet } from '@codemirror/view';
 
 /** SelectionFeatures: The selection and cursor features of the editor. */
 export class SelectionFeatures {
@@ -70,108 +68,131 @@ export class SelectionFeatures {
   // #region "Highlighting Changes"
   /** HighlightChanges: Highlight the changes in the editor. */
   HighlightChanges(PreviousVersion: string) {
-    var CurrentVersion = this.Galapagos.GetCode();
-    // create diff instance comparing previous and current
-    var diff = diffWords(PreviousVersion, CurrentVersion);
-
-    // separate words into added, removed, and same arrays based on diff obj
-    let added = diff.filter((part) => part.added).map((part) => part.value);
+    let CurrentVersion: string = this.CodeMirror.state.doc.toString();
+    // create diff instance comparing the two strings
+    let diff = diffWords(PreviousVersion, CurrentVersion);
+    console.log(diff);
+    // separate words into added and removed
     let removed = diff.filter((part) => part.removed).map((part) => part.value);
-    let same = diff.filter((part) => !part.added && !part.removed).map((part) => part.value);
 
-    // update CodeMirror to be one string of all combined changes
-    let consolidatedString = diff.map((part) => part.value).join('');
-    const transaction = this.CodeMirror.state.update({
-      changes: {
-        from: 0,
-        to: this.CodeMirror.state.doc.length,
-        insert: consolidatedString,
-      },
-    });
-    this.CodeMirror.dispatch(transaction);
+    // Make current EditorView display doc of PreviousVersion to highlight changes
+    let length = this.CodeMirror.state.doc.length;
+    let prevAsArr = PreviousVersion.split('\n');
+    let prevAsText = Text.of(prevAsArr);
+    // create a transaction to change the current doc
+    let tr = this.CodeMirror.state.update({ changes: { from: 0, to: length, insert: prevAsText } });
+    this.CodeMirror.dispatch(tr);
 
-    /* add highlights to parts of string that were added/removed  */
-    // create "Added" effect
+    // highlight words that are removed using mark decoration so as to not interfere with linter -- (the word isn't actually removed from the doc)
     const addEffect = StateEffect.define<{ from: number; to: number }>({
       map: ({ from, to }, change) => ({ from: change.mapPos(from), to: change.mapPos(to) }),
     });
 
-    // create "Removed" effect
-    const removeEffect = StateEffect.define<{ from: number; to: number }>({
-      map: ({ from, to }, change) => ({ from: change.mapPos(from), to: change.mapPos(to) }),
+    const removedMark = Decoration.mark({ class: 'cm-removed' }); //mark decoration for removed words
+    const removedTheme = EditorView.baseTheme({
+      '.cm-removed': { textDecoration: 'line-through', color: 'red', fontWeight: 'bold' },
     });
 
-    // "Added" decorations
-    const addedMark = Decoration.mark({ class: "cm-added" });
-
-    // "Removed" decorations
-    const removedMark = Decoration.mark({ class: "cm-removed" });
-
-    const highlightThemes = EditorView.baseTheme({
-      ".cm-added": { textDecoration: "none", color: "green", fontWeight: "bold" },
-      ".cm-removed": { textDecoration: "line-through", color: "red", fontWeight: "bold"},
-    });
-
-    // define a new stateField
-    const addedField = StateField.define<DecorationSet>({
+    // define statefield for removed words using mark decoration
+    const removedField = StateField.define<DecorationSet>({
       create() {
         return Decoration.none;
       },
-      update(underlines, tr) {
-        underlines = underlines.map(tr.changes);
+      update(value, tr) {
+        value = value.map(tr.changes);
         for (let e of tr.effects) {
           if (e.is(addEffect)) {
-            underlines = underlines.update({
-              add: [addedMark.range(e.value.from, e.value.to)],
-            });
-          } else if (e.is(removeEffect)) {
-            underlines = underlines.update({
+            value = value.update({
               add: [removedMark.range(e.value.from, e.value.to)],
             });
           }
         }
+        return value;
+      },
+      provide: (f) => EditorView.decorations.from(f),
+    });
+
+    // use statefield in highlightremoved function
+    function highlightRemoved(view: EditorView, word: string) {
+      let effects: StateEffect<any>[] = [];
+      // create a cursor to find the word
+      let cursor = new SearchCursor(view.state.doc, word, 0);
+      // find the word
+      cursor.next();
+      effects.push(
+        addEffect.of({
+          from: cursor.value.from,
+          to: cursor.value.to,
+        })
+      );
+      if (!effects.length) return false;
+      if (!view.state.field(removedField, false)) {
+        effects.push(StateEffect.appendConfig.of([removedField, removedTheme]));
+      }
+      view.dispatch({ effects });
+      return true;
+    }
+    console.log(removed);
+    removed.forEach((word) => highlightRemoved(this.CodeMirror, word));
+    // highlighlight words added using widget decoration so the linter doesn't see it as a new word
+    console.log(diff);
+
+    let added: string[] = diff.filter((part) => part.added).map((part) => part.value);
+    let addedPos = 0;
+    // create text widgets
+    const addTextWidget = StateEffect.define<{ from: number; to: number }>({
+      map: ({ from, to }, change) => ({ from: change.mapPos(from), to: change.mapPos(to) }),
+    });
+
+    // create the field
+    const checkboxField = StateField.define<DecorationSet>({
+      create: () => Decoration.none,
+
+      update(underlines, tr) {
+        underlines = underlines.map(tr.changes);
+        for (let e of tr.effects)
+          if (e.is(addTextWidget)) {
+            let decorationWidget = Decoration.widget({
+              widget: new textWidget(added[addedPos], 'green'),
+              side: 1,
+            });
+            addedPos++;
+            underlines = underlines.update({
+              add: [decorationWidget.range(e.value.to)],
+            });
+          }
         return underlines;
       },
       provide: (f) => EditorView.decorations.from(f),
     });
 
-    function addSelection(view: EditorView, word: string, isRemoved: boolean) {
-      const cursor = new SearchCursor(view.state.doc, word);
-
-      let effects: StateEffect<unknown>[] = [];
-
-      cursor.next();
+    function makeWidget(view: EditorView, end: number) {
+      let effects: StateEffect<any>[] = [];
       effects.push(
-        isRemoved
-          ? removeEffect.of({
-              from: cursor.value.from,
-              to: cursor.value.to,
-            })
-          : addEffect.of({
-              from: cursor.value.from,
-              to: cursor.value.to,
-            })
+        addTextWidget.of({
+          from: 0,
+          to: end,
+        })
       );
-
       if (!effects.length) return false;
 
-      if (!view.state.field(addedField, false)) {
-        effects.push(StateEffect.appendConfig.of([addedField, highlightThemes]));
-      }
-
+      effects.push(StateEffect.appendConfig.of([checkboxField]));
       view.dispatch({ effects });
+      console.log(effects);
       return true;
     }
 
-    // iterate through every added
-    added.forEach((word) => {
-      addSelection(this.CodeMirror, word, false);
+    let currentPos = 0;
+    diff.forEach((part) => {
+      //updated current position
+      if (part.added) {
+        // add the widget to the editor
+        makeWidget(this.CodeMirror, currentPos);
+      } else {
+        // update position
+        currentPos += part.value.length;
+      }
     });
-
-    // iterate through every removed
-    removed.forEach((word) => {
-      addSelection(this.CodeMirror, word, true);
-    });
-  } 
+  }
 }
-  // #endregion
+// #endregion
