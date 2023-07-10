@@ -43523,16 +43523,13 @@ if(!String.prototype.matchAll) {
             // highlighlight words added using widget decoration so the linter doesn't see it as a new word
             let addedPos = 0;
             // create text widgets
-            const addTextWidget = StateEffect.define({
-                map: ({ from, to }, change) => ({ from: change.mapPos(from), to: change.mapPos(to) }),
-            });
             // create the field
             const checkboxField = StateField.define({
                 create: () => Decoration.none,
                 update(underlines, tr) {
                     underlines = underlines.map(tr.changes);
                     for (let e of tr.effects)
-                        if (e.is(addTextWidget)) {
+                        if (e.is(addEffect)) {
                             let decorationWidget = Decoration.widget({
                                 widget: new textWidget(added[addedPos], '#32CD32', 'bold'),
                                 side: 1,
@@ -43549,7 +43546,7 @@ if(!String.prototype.matchAll) {
             function makeWidget(view, end, type = 'text') {
                 let effects = [];
                 if (type === 'text') {
-                    effects.push(addTextWidget.of({
+                    effects.push(addEffect.of({
                         from: 0,
                         to: end,
                     }));

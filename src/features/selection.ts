@@ -134,12 +134,11 @@ export class SelectionFeatures {
     }
     removed.forEach((word) => highlightRemoved(this.CodeMirror, word));
     // highlighlight words added using widget decoration so the linter doesn't see it as a new word
+
     let addedPos = 0;
-    // create text widgets
     const addTextWidget = StateEffect.define<{ from: number; to: number }>({
       map: ({ from, to }, change) => ({ from: change.mapPos(from), to: change.mapPos(to) }),
     });
-
     // create the field
     const checkboxField = StateField.define<DecorationSet>({
       create: () => Decoration.none,
