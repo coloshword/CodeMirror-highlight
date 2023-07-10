@@ -72,7 +72,6 @@ export class SelectionFeatures {
     const editor = this.CodeMirror;
     // create diff instance comparing the two strings
     let diff = diffWords(PreviousVersion, CurrentVersion);
-    console.log(diff);
     // separate words into added and removed
     let removed = diff.filter((part) => part.removed).map((part) => part.value);
 
@@ -91,7 +90,7 @@ export class SelectionFeatures {
 
     const removedMark = Decoration.mark({ class: 'cm-removed' }); //mark decoration for removed words
     const removedTheme = EditorView.baseTheme({
-      '.cm-removed': { textDecoration: 'line-through', color: 'red', fontWeight: 'bold' },
+      '.cm-removed': { textDecoration: 'line-through red', textDecorationThickness: '2px' },
     });
 
     // define statefield for removed words using mark decoration
@@ -133,19 +132,13 @@ export class SelectionFeatures {
       view.dispatch({ effects });
       return true;
     }
-    console.log(removed);
     removed.forEach((word) => highlightRemoved(this.CodeMirror, word));
     // highlighlight words added using widget decoration so the linter doesn't see it as a new word
-    console.log(diff);
 
     let added: string[] = diff.filter((part) => part.added).map((part) => part.value);
     let addedPos = 0;
     // create text widgets
     const addTextWidget = StateEffect.define<{ from: number; to: number }>({
-      map: ({ from, to }, change) => ({ from: change.mapPos(from), to: change.mapPos(to) }),
-    });
-
-    const addCheckbox = StateEffect.define<{ from: number; to: number }>({
       map: ({ from, to }, change) => ({ from: change.mapPos(from), to: change.mapPos(to) }),
     });
 
@@ -158,18 +151,10 @@ export class SelectionFeatures {
         for (let e of tr.effects)
           if (e.is(addTextWidget)) {
             let decorationWidget = Decoration.widget({
-              widget: new textWidget(added[addedPos], 'green'),
+              widget: new textWidget(added[addedPos], '#32CD32', 'bold'),
               side: 1,
             });
             addedPos++;
-            underlines = underlines.update({
-              add: [decorationWidget.range(e.value.to)],
-            });
-          } else if (e.is(addCheckbox)) {
-            let decorationWidget = Decoration.widget({
-              widget: new CheckboxWidget(editor, CurrentVersion),
-              side: 10,
-            });
             underlines = underlines.update({
               add: [decorationWidget.range(e.value.to)],
             });
@@ -188,19 +173,10 @@ export class SelectionFeatures {
             to: end,
           })
         );
-      } else {
-        effects.push(
-          addCheckbox.of({
-            from: 0,
-            to: end,
-          })
-        );
       }
       if (!effects.length) return false;
-
       effects.push(StateEffect.appendConfig.of([checkboxField]));
       view.dispatch({ effects });
-      console.log(effects);
       return true;
     }
 
@@ -215,8 +191,7 @@ export class SelectionFeatures {
         currentPos += part.value.length;
       }
     });
-    // add checkbox at the end of the editor
-    makeWidget(this.CodeMirror, currentPos, 'checkbox');
+    // add statefield to editor state
   }
 }
 // #endregion

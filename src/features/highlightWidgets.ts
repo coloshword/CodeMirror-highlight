@@ -4,22 +4,24 @@ import { Text } from '@codemirror/text';
 export class textWidget extends WidgetType {
   widgetText: string;
   textColor: string;
+  fontWeight: string;
   textDecoration: string;
-  constructor(text: string, color = '', decoration = '') {
+  constructor(text: string, color = '', fontWeight: string = '', decoration = '') {
     super();
     this.widgetText = text;
     this.textColor = color;
+    this.fontWeight = fontWeight;
     this.textDecoration = decoration;
   }
 
   toDOM() {
-    console.log('toDOM');
     let wrap = document.createElement('span');
     wrap.setAttribute('aria-hidden', 'true');
     wrap.className = 'cm-text';
     wrap.textContent = this.widgetText;
     // optional parameters
     if (this.textColor != '') wrap.style.color = this.textColor;
+    if (this.fontWeight != '') wrap.style.fontWeight = this.fontWeight;
     if (this.textDecoration != '') wrap.style.textDecoration = this.textDecoration;
     return wrap;
   }
@@ -35,10 +37,8 @@ export class CheckboxWidget extends WidgetType {
   }
 
   toDOM() {
-    console.log('In toDOM');
     let wrap = document.createElement('span');
     wrap.setAttribute('aria-hidden', 'true');
-    wrap.className = 'cm-boolean-toggle';
     let box = wrap.appendChild(document.createElement('input'));
     box.type = 'checkbox';
     box.addEventListener('click', (e) => {
