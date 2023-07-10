@@ -68,26 +68,26 @@ export class SelectionFeatures {
   // #region "Highlighting Changes"
   /** HighlightChanges: Highlight the changes in the editor. */
   HighlightChanges(PreviousVersion: string) {
-    let CurrentVersion: string = this.CodeMirror.state.doc.toString();
-    const editor = this.CodeMirror;
-    // create diff instance comparing the two strings
-    let diff = diffWords(PreviousVersion, CurrentVersion);
+    // string of current state doc of editor at time of "HighlightChanges" call
+    const CurrentVersion: string = this.CodeMirror.state.doc.toString();
+    // create diff instance comparing previous version of string to current version
+    const diff = diffWords(PreviousVersion, CurrentVersion);
     // separate words into added and removed
-    let removed = diff.filter((part) => part.removed).map((part) => part.value);
+    const removed = diff.filter((part) => part.removed).map((part) => part.value);
+    const added: string[] = diff.filter((part) => part.added).map((part) => part.value);
 
-    // Make current EditorView display doc of PreviousVersion to highlight changes
-    let length = this.CodeMirror.state.doc.length;
-    let prevAsArr = PreviousVersion.split('\n');
-    let prevAsText = Text.of(prevAsArr);
-    // create a transaction to change the current doc
-    let tr = this.CodeMirror.state.update({ changes: { from: 0, to: length, insert: prevAsText } });
-    this.CodeMirror.dispatch(tr);
+    // create a transaction so editorView shows previous version doc so as to highlight changes
+    const length = this.CodeMirror.state.doc.length;
+    const prevAsText = Text.of(PreviousVersion.split('\n'));
+    const tr = this.CodeMirror.state.update({ changes: { from: 0, to: length, insert: prevAsText } });
+    this.CodeMirror.dispatch(tr); // dispatch transaction
 
-    // highlight words that are removed using mark decoration so as to not interfere with linter -- (the word isn't actually removed from the doc)
+    // Highlight removed words using mark decoration -- not removing the actual word so as to not interfere with linter
     const addEffect = StateEffect.define<{ from: number; to: number }>({
       map: ({ from, to }, change) => ({ from: change.mapPos(from), to: change.mapPos(to) }),
     });
 
+    // define mark decoration for removed words
     const removedMark = Decoration.mark({ class: 'cm-removed' }); //mark decoration for removed words
     const removedTheme = EditorView.baseTheme({
       '.cm-removed': { textDecoration: 'line-through red', textDecorationThickness: '2px' },
@@ -134,8 +134,6 @@ export class SelectionFeatures {
     }
     removed.forEach((word) => highlightRemoved(this.CodeMirror, word));
     // highlighlight words added using widget decoration so the linter doesn't see it as a new word
-
-    let added: string[] = diff.filter((part) => part.added).map((part) => part.value);
     let addedPos = 0;
     // create text widgets
     const addTextWidget = StateEffect.define<{ from: number; to: number }>({
