@@ -6,6 +6,7 @@ import { textWidget, CheckboxWidget } from './highlightWidgets';
 import { Text } from '@codemirror/text';
 import { diffWords } from 'diff';
 import { SearchCursor } from '@codemirror/search';
+import { EditorState } from '@codemirror/state';
 
 /** SelectionFeatures: The selection and cursor features of the editor. */
 export class SelectionFeatures {
@@ -68,8 +69,11 @@ export class SelectionFeatures {
   // #region "Highlighting Changes"
   /** HighlightChanges: Highlight the changes in the editor. */
   HighlightChanges(PreviousVersion: string) {
+    let clicked: boolean = false;
     // string of current state doc of editor at time of "HighlightChanges" call
     const CurrentVersion: string = this.CodeMirror.state.doc.toString();
+    const currentState = this.CodeMirror.state;
+    const editorView = this.CodeMirror;
     // create diff instance comparing previous version of string to current version
     const diff = diffWords(PreviousVersion, CurrentVersion);
     // separate words into added and removed
@@ -82,8 +86,12 @@ export class SelectionFeatures {
     const tr = this.CodeMirror.state.update({ changes: { from: 0, to: length, insert: prevAsText } });
     this.CodeMirror.dispatch(tr); // dispatch transaction
 
-    // Highlight removed words using mark decoration -- not removing the actual word so as to not interfere with linter
-    const addEffect = StateEffect.define<{ from: number; to: number }>({
+    // defining stateffect for removed words using mark decoration
+    const removedEffect = StateEffect.define<{ from: number; to: number }>({
+      map: ({ from, to }, change) => ({ from: change.mapPos(from), to: change.mapPos(to) }),
+    });
+    // stateEffect for added words using widget decoration
+    const addTextWidget = StateEffect.define<{ from: number; to: number }>({
       map: ({ from, to }, change) => ({ from: change.mapPos(from), to: change.mapPos(to) }),
     });
 
@@ -93,17 +101,29 @@ export class SelectionFeatures {
       '.cm-removed': { textDecoration: 'line-through red', textDecorationThickness: '2px' },
     });
 
-    // define statefield for removed words using mark decoration
-    const removedField = StateField.define<DecorationSet>({
+    // index tracker for added array (tells us which added words have already been highlighted )
+    let addedIndex = 0;
+    // define statefield for words needing to be highlighted
+    const changesField = StateField.define<DecorationSet>({
       create() {
         return Decoration.none;
       },
       update(value, tr) {
         value = value.map(tr.changes);
         for (let e of tr.effects) {
-          if (e.is(addEffect)) {
+          if (e.is(removedEffect)) {
+            //if it is a removed word then add "removed" mark decoration
             value = value.update({
               add: [removedMark.range(e.value.from, e.value.to)],
+            });
+          } else if (e.is(addTextWidget)) {
+            let decorationWidget = Decoration.widget({
+              widget: new textWidget(added[addedIndex], '#32CD32', 'bold'), // if it is an added word then add a "added" widget decoration
+              side: 1,
+            });
+            addedIndex++; // increment addedIndex because we have already added this word
+            value = value.update({
+              add: [decorationWidget.range(e.value.to)],
             });
           }
         }
@@ -112,7 +132,7 @@ export class SelectionFeatures {
       provide: (f) => EditorView.decorations.from(f),
     });
 
-    // use statefield in highlightremoved function
+    /* highlightRemoved: searches for the removed word in previous string and highlights it as "removed" */
     function highlightRemoved(view: EditorView, word: string) {
       let effects: StateEffect<any>[] = [];
       // create a cursor to find the word
@@ -120,47 +140,20 @@ export class SelectionFeatures {
       // find the word
       cursor.next();
       effects.push(
-        addEffect.of({
+        removedEffect.of({
           from: cursor.value.from,
           to: cursor.value.to,
         })
       );
       if (!effects.length) return false;
-      if (!view.state.field(removedField, false)) {
-        effects.push(StateEffect.appendConfig.of([removedField, removedTheme]));
+      if (!view.state.field(changesField, false)) {
+        effects.push(StateEffect.appendConfig.of([changesField, removedTheme]));
       }
       view.dispatch({ effects });
       return true;
     }
-    removed.forEach((word) => highlightRemoved(this.CodeMirror, word));
-    // highlighlight words added using widget decoration so the linter doesn't see it as a new word
 
-    let addedPos = 0;
-    const addTextWidget = StateEffect.define<{ from: number; to: number }>({
-      map: ({ from, to }, change) => ({ from: change.mapPos(from), to: change.mapPos(to) }),
-    });
-    // create the field
-    const checkboxField = StateField.define<DecorationSet>({
-      create: () => Decoration.none,
-
-      update(underlines, tr) {
-        underlines = underlines.map(tr.changes);
-        for (let e of tr.effects)
-          if (e.is(addTextWidget)) {
-            let decorationWidget = Decoration.widget({
-              widget: new textWidget(added[addedPos], '#32CD32', 'bold'),
-              side: 1,
-            });
-            addedPos++;
-            underlines = underlines.update({
-              add: [decorationWidget.range(e.value.to)],
-            });
-          }
-        return underlines;
-      },
-      provide: (f) => EditorView.decorations.from(f),
-    });
-
+    /* makeWidget: creates a widget decoration of the added word (as 'text') and adds it to the EditorView at "end"*/
     function makeWidget(view: EditorView, end: number, type: string = 'text') {
       let effects: StateEffect<any>[] = [];
       if (type === 'text') {
@@ -172,23 +165,57 @@ export class SelectionFeatures {
         );
       }
       if (!effects.length) return false;
-      effects.push(StateEffect.appendConfig.of([checkboxField]));
+      effects.push(StateEffect.appendConfig.of([changesField]));
       view.dispatch({ effects });
       return true;
     }
 
-    let currentPos = 0;
+    // iterate through removed words and highlight them
+    removed.forEach((word) => highlightRemoved(this.CodeMirror, word));
+
+    // iterate through added words and highlight them
+    let currentPos = 0; // position tracker for added words so they are added in the correct position based on where diff put them in the consolidated string
     diff.forEach((part) => {
       //updated current position
       if (part.added) {
         // add the widget to the editor
         makeWidget(this.CodeMirror, currentPos);
       } else {
-        // update position
+        // if it is not an added word, then update the current position to be after the word that was not added
         currentPos += part.value.length;
       }
     });
-    // add statefield to editor state
+
+    function sleep(ms: number) {
+      return new Promise((resolve) => setTimeout(resolve, ms));
+    }
+
+    function revert(view: EditorView, state: EditorState) {
+      view.setState(state);
+      return;
+    }
+    //   //create another statefield to remove the highlight after 5 seconds
+    const removeChangesField = StateField.define({
+      create() {
+        Decoration.none;
+      },
+      update(lines, tr) {
+        // check if cursor changed
+        if (tr.selection && !clicked) {
+          // if cursor changed, then remove the highlight
+          console.log('selection changed ');
+          sleep(50).then(() => {
+            revert(editorView, currentState);
+            clicked = false;
+          });
+        }
+        return;
+      },
+    });
+    // add the statefield to the editor
+    this.CodeMirror.dispatch({
+      effects: StateEffect.appendConfig.of([removeChangesField]),
+    });
   }
 }
 // #endregion
